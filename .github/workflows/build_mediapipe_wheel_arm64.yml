@@ -1,0 +1,46 @@
+name: Build MediaPipe wheel (aarch64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone MediaPipe
+        run: |
+          git clone --depth 1 https://github.com/google-ai-edge/mediapipe.git
+          cd mediapipe
+          git rev-parse --short HEAD
+
+      - name: Patch protoc download (v28.3 workaround)
+        run: |
+          cd mediapipe
+          # Workaround for Dockerfile.manylinux2014_aarch64rp4 protoc zip link issue
+          sed -i 's/protoc-5\.28\.3-linux-aarch_64\.zip/protoc-28.3-linux-aarch_64.zip/g' Dockerfile.manylinux2014_aarch64rp4
+          sed -i 's|/download/v5\.28\.3/|/download/v28.3/|g' Dockerfile.manylinux2014_aarch64rp4
+          # Make curl fail fast + retry (helps avoid silent HTML downloads)
+          sed -i 's/^RUN curl -OL /RUN curl -fL --retry 5 --retry-delay 2 -O /' Dockerfile.manylinux2014_aarch64rp4
+          grep -n "PROTOC_ZIP\|protocolbuffers/protobuf" Dockerfile.manylinux2014_aarch64rp4 || true
+
+      - name: Build wheel image (manylinux aarch64)
+        run: |
+          cd mediapipe
+          docker build -f Dockerfile.manylinux2014_aarch64rp4 -t mp_manylinux_aarch64rp4 .
+
+      - name: Extract wheelhouse
+        run: |
+          mkdir -p wheelhouse
+          docker create -ti --name mp_pip_package_container mp_manylinux_aarch64rp4:latest
+          docker cp mp_pip_package_container:/wheelhouse/. ./wheelhouse/
+          docker rm -f mp_pip_package_container
+          ls -lh wheelhouse
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediapipe_wheels_aarch64
+          path: wheelhouse/*.whl
