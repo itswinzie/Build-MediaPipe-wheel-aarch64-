@@ -3,6 +3,10 @@ name: Build MediaPipe wheel (aarch64)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
@@ -19,31 +23,36 @@ jobs:
       - name: Disable missing diff patch step
         run: |
           cd mediapipe
-          # Comment out the patch line if diff file is missing in this repo version
           sed -i 's|^ *RUN patch -p1 < mediapipe_python_build.diff|# RUN patch -p1 < mediapipe_python_build.diff|g' Dockerfile.manylinux2014_aarch64rp4
-          grep -n "mediapipe_python_build.diff" -n Dockerfile.manylinux2014_aarch64rp4 || true
+          grep -n "mediapipe_python_build.diff" Dockerfile.manylinux2014_aarch64rp4 || true
 
       - name: Patch protoc download (v28.3 workaround)
         run: |
           cd mediapipe
-          # Workaround for Dockerfile.manylinux2014_aarch64rp4 protoc zip link issue
           sed -i 's/protoc-5\.28\.3-linux-aarch_64\.zip/protoc-28.3-linux-aarch_64.zip/g' Dockerfile.manylinux2014_aarch64rp4
           sed -i 's|/download/v5\.28\.3/|/download/v28.3/|g' Dockerfile.manylinux2014_aarch64rp4
-          # Make curl fail fast + retry (helps avoid silent HTML downloads)
           sed -i 's/^RUN curl -OL /RUN curl -fL --retry 5 --retry-delay 2 -O /' Dockerfile.manylinux2014_aarch64rp4
           grep -n "PROTOC_ZIP\|protocolbuffers/protobuf" Dockerfile.manylinux2014_aarch64rp4 || true
-          
+
       - name: Ensure setuptools exists for setup.py
         run: |
           cd mediapipe
-          # Add setuptools to pip install line for cp312 build step
           sed -i 's/\-m pip install wheel "numpy<2" auditwheel/\-m pip install setuptools wheel "numpy<2" auditwheel/g' Dockerfile.manylinux2014_aarch64rp4
           grep -n 'pip install' Dockerfile.manylinux2014_aarch64rp4 | tail -n 5
 
-      - name: Build wheel image (manylinux aarch64)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build wheel image (manylinux aarch64) with cache
         run: |
           cd mediapipe
-          docker build -f Dockerfile.manylinux2014_aarch64rp4 -t mp_manylinux_aarch64rp4 .
+          docker buildx build \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -f Dockerfile.manylinux2014_aarch64rp4 \
+            -t mp_manylinux_aarch64rp4 \
+            --load \
+            .
 
       - name: Extract wheelhouse
         run: |
