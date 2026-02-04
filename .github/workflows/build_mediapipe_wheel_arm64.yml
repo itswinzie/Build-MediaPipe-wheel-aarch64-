@@ -16,6 +16,13 @@ jobs:
           cd mediapipe
           git rev-parse --short HEAD
 
+      - name: Disable missing diff patch step
+        run: |
+          cd mediapipe
+          # Comment out the patch line if diff file is missing in this repo version
+          sed -i 's|^ *RUN patch -p1 < mediapipe_python_build.diff|# RUN patch -p1 < mediapipe_python_build.diff|g' Dockerfile.manylinux2014_aarch64rp4
+          grep -n "mediapipe_python_build.diff" -n Dockerfile.manylinux2014_aarch64rp4 || true
+
       - name: Patch protoc download (v28.3 workaround)
         run: |
           cd mediapipe
